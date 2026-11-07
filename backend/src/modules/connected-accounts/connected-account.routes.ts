@@ -4,9 +4,10 @@ import { z } from 'zod'
 import { env } from '../../config/env.js'
 import { prisma } from '../../config/prisma.js'
 import { requireAuth, type AuthRequest } from '../../middleware/auth.middleware.js'
-import { decryptText, encryptText, hashToken, randomToken } from '../../utils/crypto.js'
+import { encryptText, hashToken, randomToken } from '../../utils/crypto.js'
 import { hashPassword } from '../../utils/password.js'
 import { createOAuthClient, syncGoogleQuota } from '../google/google.service.js'
+import { canRegisterNewUser } from '../auth/auth.routes.js'
 import { syncS3Quota, testS3Connection } from '../s3/s3.service.js'
 
 export const connectedAccountRouter = Router()
@@ -191,6 +192,10 @@ connectedAccountRouter.get('/google/callback', async (req, res, next) => {
     if (!providerAccountId || !email) return res.status(400).json({ code: 'GOOGLE_PROFILE_FAILED', message: 'Google profile missing id or email.' })
 
     if (oauthState.flow === 'login') {
+      const existingUser = await prisma.user.findUnique({ where: { email } })
+      if (!existingUser && !(await canRegisterNewUser(email))) {
+        return res.redirect(`${env.FRONTEND_URL}/google-auth?status=error`)
+      }
       const name = profile.data.name || email.split('@')[0] || 'Google User'
       const user = await prisma.user.upsert({
         where: { email },

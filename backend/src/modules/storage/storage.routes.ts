@@ -95,10 +95,10 @@ storageRouter.get('/breakdown', async (req: AuthRequest, res, next) => {
           WHEN mime_type LIKE 'video/%' THEN 'video'
           ELSE 'document'
         END AS kind,
-        COALESCE(SUM(size_bytes), 0) AS bytes
+        CAST(COALESCE(SUM(size_bytes), 0) AS BIGINT) AS bytes
       FROM files
       WHERE user_id = ${req.user!.id} AND status = 'active'
-      GROUP BY kind
+      GROUP BY 1
     `
     const breakdown = { photo: '0', video: '0', document: '0' }
     for (const row of rows) {

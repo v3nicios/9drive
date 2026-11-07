@@ -1,16 +1,15 @@
 services:
-  mysql:
-    image: mysql:8.4
+  postgres:
+    image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-9drive}
-      MYSQL_USER: ${MYSQL_USER:-9drive}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-this-database-password}
+      POSTGRES_DB: ${POSTGRES_DB:-9drive}
+      POSTGRES_USER: ${POSTGRES_USER:-9drive}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-database-password}
     volumes:
-      - mysql_data:/var/lib/mysql
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-9drive} -d ${POSTGRES_DB:-9drive}"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -20,10 +19,10 @@ services:
       context: ./backend
     restart: unless-stopped
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: mysql://${MYSQL_USER:-9drive}:${MYSQL_PASSWORD:-change-this-database-password}@mysql:3306/${MYSQL_DATABASE:-9drive}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-9drive}:${POSTGRES_PASSWORD:-change-this-database-password}@postgres:5432/${POSTGRES_DB:-9drive}?schema=public}
       APP_PORT: 4000
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-this-jwt-secret-at-least-32-chars}
@@ -31,6 +30,7 @@ services:
       ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-3600}
       REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-30}
       MAX_UPLOAD_BYTES: 5368709120
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:4000/connected-accounts/google/callback}
@@ -50,4 +50,4 @@ services:
       - "5173:80"
 
 volumes:
-  mysql_data:
+  postgres_data:

@@ -511,10 +511,10 @@ export function AllFilesPage() {
   async function copyShareLinkDirect() {
     if (!activeFile?.id) return
     try {
-      const data = await apiFetch<{ url: string | null }>(`/files/${activeFile.id}/view-url`)
-      if (data.url) {
-        await navigator.clipboard.writeText(data.url)
-        setMessage('Google Drive link copied to clipboard!')
+      const shareData = await apiFetch<{ url: string }>(`/files/${activeFile.id}/share`, { method: 'POST' })
+      if (shareData.url) {
+        await navigator.clipboard.writeText(shareData.url)
+        setMessage('Share link copied to clipboard!')
         setTimeout(() => setMessage(''), 2500)
       } else {
         const shareData = await apiFetch<{ url: string }>(`/files/${activeFile.id}/share`, { method: 'POST' })
@@ -789,7 +789,7 @@ export function AllFilesPage() {
             <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 grid gap-3">
               <div>
                 <label className="text-xs font-bold text-slate-500 block mb-1">Google Drive Direct Link (Public Access)</label>
-                <p className="text-xs text-slate-500 mb-2">Configure this file to be publicly accessible on Google Drive so external tools can edit/download it.</p>
+                <p className="text-xs text-slate-500 mb-2">Configure this file to be publicly accessible on Google Drive so external tools can view/download it.</p>
               </div>
               {gdrivePublicUrl ? (
                 <div className="grid gap-2">

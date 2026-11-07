@@ -11,6 +11,17 @@ import { createOAuthClient, syncGoogleQuota } from '../google/google.service.js'
 
 export const authRouter = Router()
 
+export async function canRegisterNewUser(email: string) {
+  if (env.ALLOW_REGISTRATION) return true
+  const userCount = await prisma.user.count()
+  if (userCount === 0) return true
+  const invite = await prisma.workspaceInvite.findFirst({
+    where: { inviteeEmail: email.trim().toLowerCase(), revokedAt: null },
+    select: { id: true },
+  })
+  return Boolean(invite)
+}
+
 const registerSchema = z.object({ name: z.string().min(2), email: z.string().email(), password: z.string().min(8), captchaToken: z.string().optional() })
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1) })
 const refreshSchema = z.object({ refreshToken: z.string().min(1) })
@@ -46,6 +57,9 @@ authRouter.post('/register', async (req, res, next) => {
     if (!(await verifyCaptcha(body.captchaToken))) return res.status(400).json({ code: 'CAPTCHA_FAILED', message: 'Captcha verification failed.' })
     const existing = await prisma.user.findUnique({ where: { email: body.email } })
     if (existing) return res.status(409).json({ code: 'AUTH_EMAIL_TAKEN', message: 'Email already registered.' })
+    if (!(await canRegisterNewUser(body.email))) {
+      return res.status(403).json({ code: 'AUTH_REGISTRATION_DISABLED', message: 'Public registration is disabled on this workspace.' })
+    }
     const user = await prisma.user.create({ data: { name: body.name, email: body.email, passwordHash: await hashPassword(body.password) } })
     const tokens = await createSession(user.id, req)
     return res.status(201).json({ ...tokens, user: { id: user.id, name: user.name, email: user.email } })
@@ -102,6 +116,11 @@ authRouter.get('/google/callback', async (req, res) => {
     const providerAccountId = profile.data.id
     const email = profile.data.email
     if (!providerAccountId || !email) return res.redirect(`${env.FRONTEND_URL}/google-auth?status=error`)
+
+    const existingUser = await prisma.user.findUnique({ where: { email } })
+    if (!existingUser && !(await canRegisterNewUser(email))) {
+      return res.redirect(`${env.FRONTEND_URL}/google-auth?status=error`)
+    }
 
     const name = profile.data.name || email.split('@')[0] || 'Google User'
     const user = await prisma.user.upsert({
