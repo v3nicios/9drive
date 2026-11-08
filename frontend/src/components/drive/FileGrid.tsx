@@ -1,8 +1,9 @@
-import { MoreVertical } from 'lucide-react'
+import { MoreVertical, Play } from 'lucide-react'
 import type { MouseEvent } from 'react'
 import { Card } from '@/components/ui/card'
 import { FileIcon } from '@/components/drive/FileIcon'
 import type { FileItem } from '@/data/drive-data'
+import { isZipFile } from '@/lib/preview'
 import { cn } from '@/lib/utils'
 
 export type FileSizeScale = 'xs' | 'sm' | 'md' | 'lg'
@@ -79,12 +80,14 @@ export function FileGrid({
   selectedFileIds = new Set<string>(),
   sizeScale = 'md',
   onFileContextMenu,
+  onPreviewFile,
   onToggleFile
 }: {
   files: FileItem[]
   selectedFileIds?: Set<string>
   sizeScale?: FileSizeScale
   onFileContextMenu?: (event: MouseEvent<HTMLElement>, file: FileItem) => void
+  onPreviewFile?: (file: FileItem) => void
   onToggleFile?: (file: FileItem) => void
 }) {
   const cfg = scaleConfig[sizeScale]
@@ -124,6 +127,20 @@ export function FileGrid({
                 <span className={cn("rounded-full bg-slate-100", cfg.tag)}>{file.size}</span>
                 <span className={cn("max-w-full truncate rounded-full bg-slate-100", cfg.tag)}>{file.access}</span>
               </div>
+              {isZipFile(file.mimeType, file.name) ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    if (onPreviewFile) onPreviewFile(file)
+                    else window.dispatchEvent(new CustomEvent('9drive:open-preview-modal', { detail: file }))
+                  }}
+                  className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-violet-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-violet-700 transition-colors"
+                >
+                  <Play className="h-3.5 w-3.5 fill-current" />
+                  Stream Vídeo
+                </button>
+              ) : null}
             </div>
           </Card>
         )

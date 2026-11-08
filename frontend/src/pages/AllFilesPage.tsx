@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input'
 import { API_URL, apiFetch, formatBytes, formatDate } from '@/lib/api'
 import { getAccessToken } from '@/lib/auth'
 import { createPlyr, ensurePlyr } from '@/lib/plyr'
-import { getPreviewKind, officeViewerUrl } from '@/lib/preview'
+import { getPreviewKind, officeViewerUrl, type ZipVideoEntry } from '@/lib/preview'
 import type { FileItem, FolderItem } from '@/data/drive-data'
 import { useUpload } from '@/context/UploadContext'
 import { useDriveLayoutActions } from '@/layouts/DriveLayout'
@@ -94,6 +94,8 @@ export function AllFilesPage() {
   const [previewUrl, setPreviewUrl] = useState('')
   const [previewError, setPreviewError] = useState('')
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [zipVideoEntries, setZipVideoEntries] = useState<ZipVideoEntry[]>([])
+  const [selectedZipVideoIndex, setSelectedZipVideoIndex] = useState(0)
   const [files, setFiles] = useState<FileItem[]>([])
   const [folders, setFolders] = useState<FolderItem[]>([])
   const [allFolders, setAllFolders] = useState<FolderItem[]>([])
@@ -250,7 +252,9 @@ export function AllFilesPage() {
   }, [activeFolderForMenu, cutFolder, activeFolderId])
 
   useEffect(() => {
-    if (!previewOpen || !activeFile?.mimeType?.startsWith('video/') || !previewVideoRef.current) return undefined
+    const kind = getPreviewKind(activeFile?.mimeType, activeFile?.name)
+    const isVideoReady = kind === 'video' || (kind === 'zip' && zipVideoEntries.length > 0)
+    if (!previewOpen || !isVideoReady || !previewVideoRef.current) return undefined
     let disposed = false
     let player: { destroy: () => void } | null = null
 
@@ -263,7 +267,7 @@ export function AllFilesPage() {
       disposed = true
       player?.destroy()
     }
-  }, [previewOpen, activeFile?.mimeType, previewUrl])
+  }, [previewOpen, activeFile?.mimeType, activeFile?.name, previewUrl, zipVideoEntries.length, selectedZipVideoIndex])
 
   async function createFolder(event: FormEvent) {
     event.preventDefault()
@@ -402,17 +406,27 @@ export function AllFilesPage() {
     setSearchParams(searchQuery ? { q: searchQuery } : {})
   }
 
-  async function viewFile() {
-    if (!activeFile?.id) return
+  async function viewFile(targetFile?: FileItem) {
+    const fileToView = targetFile && 'id' in targetFile ? targetFile : activeFile
+    if (!fileToView?.id) return
+    if (targetFile && 'id' in targetFile) setActiveFile(targetFile)
     setPreviewUrl('')
     setPreviewError('')
+    setZipVideoEntries([])
+    setSelectedZipVideoIndex(0)
     setPreviewLoading(true)
     setPreviewOpen(true)
     setContextMenu({ x: 0, y: 0, file: null })
     try {
-      const data = await apiFetch<{ path?: string; url: string }>(`/files/${activeFile.id}/preview-token`, { method: 'POST' })
+      const data = await apiFetch<{ path?: string; url: string }>(`/files/${fileToView.id}/preview-token`, { method: 'POST' })
       const previewPath = data.path ?? new URL(data.url).pathname
-      setPreviewUrl(`${API_URL}${previewPath}`)
+      const fullPreviewUrl = `${API_URL}${previewPath}`
+      setPreviewUrl(fullPreviewUrl)
+      if (getPreviewKind(fileToView.mimeType, fileToView.name) === 'zip') {
+        const zipData = await apiFetch<{ entries: ZipVideoEntry[] }>(`${previewPath}/zip-entries`, { skipAuth: true })
+        setZipVideoEntries(zipData.entries ?? [])
+        setSelectedZipVideoIndex(zipData.entries?.[0]?.index ?? 0)
+      }
     } catch (error) {
       setPreviewError(error instanceof Error ? error.message : 'Failed to load preview')
     } finally {
@@ -614,6 +628,8 @@ export function AllFilesPage() {
   function closePreview() {
     setPreviewUrl('')
     setPreviewError('')
+    setZipVideoEntries([])
+    setSelectedZipVideoIndex(0)
     setPreviewLoading(false)
     setPreviewOpen(false)
   }
@@ -684,7 +700,8 @@ export function AllFilesPage() {
     return path
   })()
   const allVisibleSelected = files.length > 0 && files.every((file) => file.id && selectedFileIds.has(file.id))
-  const activePreviewKind = getPreviewKind(activeFile?.mimeType)
+  const activePreviewKind = getPreviewKind(activeFile?.mimeType, activeFile?.name)
+  const selectedZipVideo = zipVideoEntries.find((entry) => entry.index === selectedZipVideoIndex) ?? zipVideoEntries[0]
 
   return (
     <>
@@ -723,15 +740,15 @@ export function AllFilesPage() {
       ) : (
         <Card className="mt-3 p-4 sm:p-5 bg-white/10 backdrop-blur-sm border border-white/20 dark:bg-transparent dark:border-0 dark:p-0 dark:shadow-none">
           {fileViewMode === 'grid' ? (
-            <FileGrid files={files} selectedFileIds={selectedFileIds} sizeScale={folderSizeScale} onToggleFile={toggleFileSelection} onFileContextMenu={openContext} />
+            <FileGrid files={files} selectedFileIds={selectedFileIds} sizeScale={folderSizeScale} onToggleFile={toggleFileSelection} onFileContextMenu={openContext} onPreviewFile={(file) => viewFile(file)} />
           ) : (
-            <FileTable files={files} selectedFileIds={selectedFileIds} allSelected={allVisibleSelected} onToggleFile={toggleFileSelection} onToggleAll={toggleAllVisibleFiles} onFileContextMenu={openContext} />
+            <FileTable files={files} selectedFileIds={selectedFileIds} allSelected={allVisibleSelected} onToggleFile={toggleFileSelection} onToggleAll={toggleAllVisibleFiles} onFileContextMenu={openContext} onPreviewFile={(file) => viewFile(file)} />
           )}
         </Card>
       )}
       </div>
       <EmptyAreaContextMenu x={emptyContextMenu.x} y={emptyContextMenu.y} open={emptyContextMenu.open} canPasteFolder={Boolean(cutFolder)} onClose={() => setEmptyContextMenu({ x: 0, y: 0, open: false })} onUpload={() => { setUploadOpen(true); setEmptyContextMenu({ x: 0, y: 0, open: false }) }} onCreateFolder={() => { setFolderOpen(true); setEmptyContextMenu({ x: 0, y: 0, open: false }) }} onPasteFolder={() => { pasteFolder().catch((error) => setMessage(error instanceof Error ? error.message : 'Failed to paste folder')); setEmptyContextMenu({ x: 0, y: 0, open: false }) }} />
-      <FileContextMenu x={contextMenu.x} y={contextMenu.y} file={contextMenu.file} onClose={() => setContextMenu({ x: 0, y: 0, file: null })} onView={viewFile} onDownload={downloadFile} onRename={() => { setRenameValue(activeFile?.name ?? ''); setRenameOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onMove={() => { setMoveOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onDetails={() => { setDetailOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onShare={shareFile} onCopyLink={copyShareLinkDirect} onInvite={inviteToFile} onDelete={() => { setDeleteOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} />
+      <FileContextMenu x={contextMenu.x} y={contextMenu.y} file={contextMenu.file} onClose={() => setContextMenu({ x: 0, y: 0, file: null })} onView={() => viewFile()} onDownload={downloadFile} onRename={() => { setRenameValue(activeFile?.name ?? ''); setRenameOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onMove={() => { setMoveOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onDetails={() => { setDetailOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} onShare={shareFile} onCopyLink={copyShareLinkDirect} onInvite={inviteToFile} onDelete={() => { setDeleteOpen(true); setContextMenu({ x: 0, y: 0, file: null }) }} />
       <FolderContextMenu x={folderContextMenu.x} y={folderContextMenu.y} folder={folderContextMenu.folder} onClose={() => setFolderContextMenu({ x: 0, y: 0, folder: null })} onCut={() => cutSelectedFolder(activeFolderForMenu)} onRename={() => { setFolderRenameValue(activeFolderForMenu?.name ?? ''); setFolderRenameColor(normalizeFolderColor(activeFolderForMenu?.color)); setFolderRenameIconUrl(activeFolderForMenu?.iconUrl ?? defaultFolderIconUrl); setFolderRenameOpen(true); setFolderContextMenu({ x: 0, y: 0, folder: null }) }} onInvite={inviteToFolder} onCopyLink={copyFolderLink} onDelete={() => { setFolderDeleteOpen(true); setFolderContextMenu({ x: 0, y: 0, folder: null }) }} />
       <FileDetailsDrawer open={detailOpen} file={activeFile} onClose={() => setDetailOpen(false)} />
 
@@ -833,11 +850,51 @@ export function AllFilesPage() {
         </form>
       </DummyModal>
       <DummyModal open={previewOpen} title="File Preview" description={activeFile?.name ?? ''} onClose={closePreview} className="overflow-hidden sm:max-w-[95vw] xl:max-w-[1400px]">
-        <div className="flex h-[72dvh] w-full items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 sm:h-[80vh]">
+        <div className="flex h-[72dvh] w-full flex-col items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 sm:h-[80vh]">
           {previewLoading ? <div className="p-6 text-center text-sm font-semibold text-slate-500">Loading preview...</div> : null}
           {previewError ? <div className="p-6 text-center text-sm text-red-600">{previewError}</div> : null}
           {!previewLoading && !previewError && activePreviewKind === 'image' && previewUrl ? <img src={previewUrl} alt={activeFile?.name ?? 'File preview'} className="max-h-full max-w-full object-contain" onError={() => setPreviewError('Failed to load preview.')} /> : null}
           {!previewLoading && !previewError && activePreviewKind === 'video' && previewUrl ? <div className="shared-video-shell"><video ref={previewVideoRef} controls playsInline preload="metadata" onError={() => setPreviewError('Failed to load preview.')}><source src={previewUrl} type={activeFile?.mimeType} /></video></div> : null}
+          {!previewLoading && !previewError && activePreviewKind === 'zip' && previewUrl ? (
+            zipVideoEntries.length > 0 && selectedZipVideo ? (
+              <div className="flex h-full w-full flex-col">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                  <span className="truncate font-semibold">
+                    Streaming from Archive: <b className="text-slate-900 dark:text-white">{selectedZipVideo.name}</b> ({formatBytes(selectedZipVideo.uncompressedSize)})
+                  </span>
+                  {zipVideoEntries.length > 1 ? (
+                    <select
+                      className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                      value={selectedZipVideo.index}
+                      onChange={(e) => setSelectedZipVideoIndex(Number(e.target.value))}
+                    >
+                      {zipVideoEntries.map((entry) => (
+                        <option key={entry.index} value={entry.index}>
+                          {entry.path} ({formatBytes(entry.uncompressedSize)})
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                </div>
+                <div className="flex flex-1 items-center justify-center overflow-hidden bg-black">
+                  <div className="shared-video-shell">
+                    <video
+                      key={`${previewUrl}-${selectedZipVideo.index}`}
+                      ref={previewVideoRef}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      onError={() => setPreviewError('Failed to stream video from ZIP.')}
+                    >
+                      <source src={`${previewUrl}/zip-stream?index=${selectedZipVideo.index}`} type={selectedZipVideo.mimeType} />
+                    </video>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-6 text-center text-sm text-slate-500">No playable video files found inside this ZIP/RAR archive. Use Download instead.</div>
+            )
+          ) : null}
           {!previewLoading && !previewError && activePreviewKind === 'document' && previewUrl ? <iframe src={previewUrl} title={activeFile?.name ?? 'File preview'} className="h-full w-full border-0 bg-white" /> : null}
           {!previewLoading && !previewError && activePreviewKind === 'office' && previewUrl ? <iframe src={officeViewerUrl(previewUrl)} title={activeFile?.name ?? 'File preview'} className="h-full w-full border-0 bg-white" /> : null}
           {!previewLoading && !previewError && !activePreviewKind ? <div className="p-6 text-center text-sm text-slate-500">Preview not available for this file type. Use Download instead.</div> : null}

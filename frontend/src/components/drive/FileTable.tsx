@@ -1,11 +1,12 @@
-import { FolderOpen, MoreVertical, Star } from 'lucide-react'
+import { FolderOpen, MoreVertical, Play, Star } from 'lucide-react'
 import { type MouseEvent, useState } from 'react'
 import { AvatarStack } from '@/components/drive/AvatarStack'
 import { FileIcon } from '@/components/drive/FileIcon'
 import type { FileItem } from '@/data/drive-data'
 import { apiFetch } from '@/lib/api'
+import { isZipFile } from '@/lib/preview'
 
-export function FileTable({ files, mode = 'default', selectedFileIds = new Set<string>(), allSelected = false, onFileContextMenu, onToggleFile, onToggleAll }: { files: FileItem[]; mode?: 'default' | 'shared' | 'recent' | 'starred' | 'archived'; selectedFileIds?: Set<string>; allSelected?: boolean; onFileContextMenu?: (event: MouseEvent<HTMLElement>, file: FileItem) => void; onToggleFile?: (file: FileItem) => void; onToggleAll?: () => void }) {
+export function FileTable({ files, mode = 'default', selectedFileIds = new Set<string>(), allSelected = false, onFileContextMenu, onPreviewFile, onToggleFile, onToggleAll }: { files: FileItem[]; mode?: 'default' | 'shared' | 'recent' | 'starred' | 'archived'; selectedFileIds?: Set<string>; allSelected?: boolean; onFileContextMenu?: (event: MouseEvent<HTMLElement>, file: FileItem) => void; onPreviewFile?: (file: FileItem) => void; onToggleFile?: (file: FileItem) => void; onToggleAll?: () => void }) {
   const [copiedFileId, setCopiedFileId] = useState<string | null>(null)
 
   return (
@@ -37,6 +38,22 @@ export function FileTable({ files, mode = 'default', selectedFileIds = new Set<s
                 </div>
                 <button className="-mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100" onClick={(event) => { event.stopPropagation(); onFileContextMenu?.(event, file) }} aria-label={`Open ${file.name} menu`}><MoreVertical className="h-4 w-4" /></button>
               </div>
+              {isZipFile(file.mimeType, file.name) ? (
+                <div className="mt-2.5 flex justify-end border-t border-slate-100 pt-2">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      if (onPreviewFile) onPreviewFile(file)
+                      else window.dispatchEvent(new CustomEvent('9drive:open-preview-modal', { detail: file }))
+                    }}
+                    className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-xl bg-violet-600 px-3 text-xs font-bold text-white hover:bg-violet-700"
+                  >
+                    <Play className="h-3.5 w-3.5 fill-current" />
+                    Stream Vídeo (ZIP)
+                  </button>
+                </div>
+              ) : null}
             </article>
           )
         })}
@@ -92,6 +109,21 @@ export function FileTable({ files, mode = 'default', selectedFileIds = new Set<s
                 <td className="py-2.5 text-slate-500"><span className="flex items-center gap-2"><AvatarStack count={file.shared} />{file.access}</span></td>
                 <td className="py-2.5 text-right">
                   <div className="flex items-center justify-end gap-1.5">
+                    {isZipFile(file.mimeType, file.name) ? (
+                      <button
+                        type="button"
+                        title="Reproduzir Vídeo (ZIP Stream)"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          if (onPreviewFile) onPreviewFile(file)
+                          else window.dispatchEvent(new CustomEvent('9drive:open-preview-modal', { detail: file }))
+                        }}
+                        className="inline-flex h-7 px-2.5 items-center gap-1 justify-center rounded-lg text-[11px] font-bold text-white bg-violet-600 hover:bg-violet-700 shadow-sm transition-colors"
+                      >
+                        <Play className="h-3 w-3 fill-current" />
+                        Stream Vídeo
+                      </button>
+                    ) : null}
                     {/* Hover shortcuts */}
                     <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex gap-1.5">
                       <button

@@ -1,5 +1,6 @@
-import { Copy, Download, Edit3, Eye, FolderInput, Info, Link2, Trash2, UserPlus } from 'lucide-react'
+import { Copy, Download, Edit3, Eye, FolderInput, Info, Link2, Play, Trash2, UserPlus } from 'lucide-react'
 import type { FileItem } from '@/data/drive-data'
+import { isZipFile } from '@/lib/preview'
 
 type Props = {
   x: number
@@ -122,7 +123,10 @@ export function FileContextMenu({ x, y, file, onClose, onView, onDownload, onRen
 
         {/* Actions */}
         <div className="p-1.5">
-          <MenuItem icon={Eye} label="Preview" onClick={onView} kbd="↵" />
+          {isZipFile(file.mimeType, file.name) ? (
+            <MenuItem icon={Play} label="Stream Video (ZIP/RAR)" onClick={onView} kbd="↵" />
+          ) : null}
+          <MenuItem icon={Eye} label="Preview" onClick={onView} kbd={isZipFile(file.mimeType, file.name) ? undefined : '↵'} />
           <MenuItem icon={Download} label="Download" onClick={onDownload} />
           <MenuItem icon={Edit3} label="Rename" onClick={onRename} />
           <MenuItem icon={FolderInput} label="Move to Folder" onClick={onMove} />

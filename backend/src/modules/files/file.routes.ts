@@ -9,6 +9,7 @@ import { getAuthedGoogleClient, syncGoogleAppFolderFiles, syncGoogleQuota } from
 import { deleteS3Object, syncS3Quota, createS3Client, getS3ConfigForAccount } from '../s3/s3.service.js'
 import { streamProviderFile } from './stream-file.js'
 import { googleDownloadExportMimeTypes, normalizeHeaders, withExtension } from './stream-google-file.js'
+import { listZipVideoEntries, streamZipVideoEntry } from './stream-zip-video.js'
 import { GetObjectCommand } from '@aws-sdk/client-s3'
 import { Readable } from 'node:stream'
 import { ZipArchive } from 'archiver'
@@ -27,6 +28,36 @@ fileRouter.get('/preview/:token', async (req, res, next) => {
     })
     if (!preview || preview.file.status !== 'active') return res.status(404).json({ code: 'PREVIEW_NOT_FOUND', message: 'Preview token not found.' })
     return streamProviderFile(preview.file, req.headers.range, res, { disposition: 'inline' })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+fileRouter.get('/preview/:token/zip-entries', async (req, res, next) => {
+  try {
+    const token = String(req.params.token)
+    const preview = await prisma.filePreviewToken.findFirst({
+      where: { tokenHash: hashToken(token), expiresAt: { gt: new Date() } },
+      include: { file: { include: { connectedAccount: true } } },
+    })
+    if (!preview || preview.file.status !== 'active') return res.status(404).json({ code: 'PREVIEW_NOT_FOUND', message: 'Preview token not found.' })
+    const entries = await listZipVideoEntries(preview.file)
+    return res.json({ entries })
+  } catch (error) {
+    return next(error)
+  }
+})
+
+fileRouter.get('/preview/:token/zip-stream', async (req, res, next) => {
+  try {
+    const token = String(req.params.token)
+    const entryIndex = Math.max(0, Number(req.query.index) || 0)
+    const preview = await prisma.filePreviewToken.findFirst({
+      where: { tokenHash: hashToken(token), expiresAt: { gt: new Date() } },
+      include: { file: { include: { connectedAccount: true } } },
+    })
+    if (!preview || preview.file.status !== 'active') return res.status(404).json({ code: 'PREVIEW_NOT_FOUND', message: 'Preview token not found.' })
+    return await streamZipVideoEntry(preview.file, entryIndex, req.headers.range, res)
   } catch (error) {
     return next(error)
   }

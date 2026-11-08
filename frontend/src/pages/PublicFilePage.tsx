@@ -4,7 +4,7 @@ import { Download, ExternalLink, FileArchive, FileText, ImageIcon, Play, Table2 
 import { Button } from '@/components/ui/button'
 import { API_URL, apiFetch, formatBytes, formatDate } from '@/lib/api'
 import { createPlyr, ensurePlyr } from '@/lib/plyr'
-import { getPreviewKind, isSpreadsheetMimeType, officeViewerUrl } from '@/lib/preview'
+import { getPreviewKind, isSpreadsheetMimeType, officeViewerUrl, type ZipVideoEntry } from '@/lib/preview'
 
 type PublicFile = { name: string; mimeType: string; sizeBytes: string; createdAt: string }
 
@@ -36,15 +36,35 @@ export function PublicFilePage({ embed = false }: { embed?: boolean }) {
   const { token } = useParams()
   const [file, setFile] = useState<PublicFile | null>(null)
   const [failed, setFailed] = useState(false)
+  const [zipEntries, setZipEntries] = useState<ZipVideoEntry[]>([])
+  const [selectedZipIndex, setSelectedZipIndex] = useState(0)
+  const [zipLoading, setZipLoading] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const previewUrl = `${API_URL}/public/files/${token}/preview`
   const downloadUrl = `${API_URL}/public/files/${token}/download`
-  const kind = getPreviewKind(file?.mimeType)
+  const kind = getPreviewKind(file?.mimeType, file?.name)
+  const selectedZipVideo = zipEntries.find((entry) => entry.index === selectedZipIndex) ?? zipEntries[0]
 
   useEffect(() => {
     setFailed(false)
+    setZipEntries([])
+    setSelectedZipIndex(0)
     apiFetch<{ file: PublicFile }>(`/public/files/${token}`, { skipAuth: true })
-      .then((data) => setFile(data.file))
+      .then(async (data) => {
+        setFile(data.file)
+        if (getPreviewKind(data.file.mimeType, data.file.name) === 'zip') {
+          setZipLoading(true)
+          try {
+            const zipData = await apiFetch<{ entries: ZipVideoEntry[] }>(`/public/files/${token}/zip-entries`, { skipAuth: true })
+            setZipEntries(zipData.entries ?? [])
+            setSelectedZipIndex(zipData.entries?.[0]?.index ?? 0)
+          } catch {
+            setZipEntries([])
+          } finally {
+            setZipLoading(false)
+          }
+        }
+      })
       .catch(() => {
         setFile(null)
         setFailed(true)
@@ -59,7 +79,8 @@ export function PublicFilePage({ embed = false }: { embed?: boolean }) {
   }, [file])
 
   useEffect(() => {
-    if (kind !== 'video' || !videoRef.current) return undefined
+    const isVideoReady = kind === 'video' || (kind === 'zip' && zipEntries.length > 0 && !zipLoading)
+    if (!isVideoReady || !videoRef.current) return undefined
     let disposed = false
     let player: { destroy: () => void } | null = null
 
@@ -72,7 +93,7 @@ export function PublicFilePage({ embed = false }: { embed?: boolean }) {
       disposed = true
       player?.destroy()
     }
-  }, [kind, previewUrl])
+  }, [kind, previewUrl, zipEntries.length, selectedZipIndex, zipLoading])
 
   if (failed) {
     return (
@@ -94,6 +115,41 @@ export function PublicFilePage({ embed = false }: { embed?: boolean }) {
     <div className="flex h-full w-full items-center justify-center">
       {kind === 'image' ? <img src={previewUrl} alt={file.name} className="max-h-full max-w-full object-contain shadow-2xl shadow-black/30" /> : null}
       {kind === 'video' ? <div className="shared-video-shell"><video ref={videoRef} controls playsInline preload="metadata"><source src={previewUrl} type={file.mimeType} /></video></div> : null}
+      {kind === 'zip' ? (
+        zipLoading ? (
+          <div className="text-sm font-semibold text-slate-400">Inspecting ZIP video stream...</div>
+        ) : zipEntries.length > 0 && selectedZipVideo ? (
+          <div className="flex h-full w-full flex-col">
+            <div className="z-10 flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-[#17191f]/90 px-4 py-2 text-xs text-slate-300">
+              <span className="truncate font-semibold">
+                Streaming from Archive: <b className="text-white">{selectedZipVideo.name}</b> ({formatBytes(selectedZipVideo.uncompressedSize)})
+              </span>
+              {zipEntries.length > 1 ? (
+                <select
+                  className="h-8 rounded-lg border border-white/15 bg-[#0f1117] px-2.5 text-xs font-semibold text-white"
+                  value={selectedZipVideo.index}
+                  onChange={(e) => setSelectedZipIndex(Number(e.target.value))}
+                >
+                  {zipEntries.map((entry) => (
+                    <option key={entry.index} value={entry.index}>
+                      {entry.path} ({formatBytes(entry.uncompressedSize)})
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+            </div>
+            <div className="flex flex-1 items-center justify-center overflow-hidden">
+              <div className="shared-video-shell">
+                <video key={`${token}-${selectedZipVideo.index}`} ref={videoRef} controls playsInline preload="metadata">
+                  <source src={`${API_URL}/public/files/${token}/zip-stream?index=${selectedZipVideo.index}`} type={selectedZipVideo.mimeType} />
+                </video>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <UnsupportedPreview file={file} downloadUrl={downloadUrl} />
+        )
+      ) : null}
       {kind === 'document' ? <iframe src={previewUrl} title={file.name} className="h-full w-full border-0 bg-white" /> : null}
       {kind === 'office' ? <iframe src={officeViewerUrl(previewUrl)} title={file.name} className="h-full w-full border-0 bg-white" /> : null}
       {!kind ? <UnsupportedPreview file={file} downloadUrl={downloadUrl} /> : null}
